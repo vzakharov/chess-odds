@@ -1,28 +1,58 @@
-// Stockfish worker - using pure JS version for compatibility
+// Stockfish worker using WebAssembly
 
-// Import Stockfish
-importScripts('/stockfish.js');
+// Feature detection for WebAssembly threading support
+function wasmThreadsSupported() {
+  return (
+    typeof SharedArrayBuffer === 'function' &&
+    typeof Atomics === 'object'
+  );
+}
 
-// Relay messages between main thread and engine
-onmessage = function(event) {
+let stockfish;
+
+// Initialize the engine
+async function initEngine() {
+  try {
+    const hasThreadSupport = wasmThreadsSupported();
+    
+    if (!hasThreadSupport) {
+      self.postMessage({ 
+        type: 'log', 
+        message: 'SharedArrayBuffer not available - this requires HTTPS and proper COOP/COEP headers'
+      });
+    }
+    
+    // Import Stockfish and initialize
+    importScripts('/workers/stockfish.js');
+    stockfish = await Stockfish();
+    
+    // Set up message listener
+    stockfish.addMessageListener((line) => {
+      self.postMessage({ type: 'stockfish-output', line });
+    });
+    
+    // Let the main thread know we're ready
+    self.postMessage({ 
+      type: 'ready',
+      usingThreads: hasThreadSupport
+    });
+  } catch (err) {
+    self.postMessage({ 
+      type: 'error', 
+      error: err.toString(),
+      message: 'Failed to initialize Stockfish'
+    });
+  }
+}
+
+// Handle messages from main thread
+self.onmessage = function(event) {
   const message = event.data;
   
   if (message.cmd === 'init') {
-    // Let the main thread know we're ready
-    self.postMessage({ type: 'ready' });
-  } else if (message.cmd === 'send') {
-    // Forward commands to the engine
+    initEngine();
+  } else if (message.cmd === 'send' && stockfish) {
     self.postMessage({ type: 'log', message: 'Sending to engine: ' + message.message });
-    postMessage(message.message);
+    stockfish.postMessage(message.message);
   }
 };
-
-// Handle messages from the engine
-addEventListener('message', function(event) {
-  // Ignore messages that are meant for the worker itself
-  if (event.data instanceof Object && event.data.hasOwnProperty('cmd'))
-    return;
-  
-  // Forward messages from the engine to the main thread
-  self.postMessage({ type: 'stockfish-output', line: event.data });
-}); 

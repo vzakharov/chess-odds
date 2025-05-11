@@ -21,6 +21,26 @@ const nextConfig = {
     
     return config;
   },
+  
+  // Add headers required for SharedArrayBuffer (WASM threading)
+  async headers() {
+    return [
+      {
+        // Headers for all routes
+        source: '/:path*',
+        headers: [
+          {
+            key: 'Cross-Origin-Embedder-Policy',
+            value: 'require-corp',
+          },
+          {
+            key: 'Cross-Origin-Opener-Policy',
+            value: 'same-origin',
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig; 
