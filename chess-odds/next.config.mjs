@@ -1,14 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   webpack: (config) => {
-    // Add support for WebAssembly (for Stockfish)
+    // Add support for WebAssembly
     config.experiments = {
       ...config.experiments,
       asyncWebAssembly: true,
       layers: true,
     };
     
-    // Support NodeJS modules in the browser (for Stockfish)
+    // Support NodeJS modules in the browser
     config.resolve = {
       ...config.resolve,
       fallback: {

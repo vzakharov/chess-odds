@@ -13,6 +13,8 @@ export default function Home() {
   const [simulationProgress, setSimulationProgress] = useState(0);
   const [lastResult, setLastResult] = useState<GameResult | null>(null);
   const [chessEngine, setChessEngine] = useState<ChessEngine | null>(null);
+  const [isInitializing, setIsInitializing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState({
     gamesCompleted: 0,
     whiteWins: 0,
@@ -39,53 +41,71 @@ export default function Home() {
     setRemovedPieces(pieces);
   };
 
-  const handleStartSimulation = (numGames: number) => {
-    if (isSimulationRunning) return;
+  const handleStartSimulation = async (numGames: number) => {
+    if (isSimulationRunning || isInitializing) return;
 
-    setIsSimulationRunning(true);
-    setSimulationProgress(0);
-    setStats({
-      gamesCompleted: 0,
-      whiteWins: 0,
-      blackWins: 0,
-      draws: 0,
-      totalGames: numGames,
-      whiteWinPercentage: 0,
-      blackWinPercentage: 0,
-      drawPercentage: 0,
-    });
-    setEloDifference(null);
-
-    const engine = new ChessEngine(
-      numGames,
-      (fen, lastMove, progress) => {
-        setSimulationProgress(progress);
-      },
-      (result) => {
-        setLastResult(result);
-        const currentStats = engine.getStats();
-        setStats(currentStats);
-        
-        // Calculate Elo difference if we have enough games
-        if (currentStats.gamesCompleted > 0) {
-          const whiteWinRate = currentStats.whiteWins / currentStats.gamesCompleted;
-          // Only calculate if not 0% or 100%
-          if (whiteWinRate > 0 && whiteWinRate < 1) {
-            const elo = engine.calculateEloDifference(whiteWinRate);
-            setEloDifference(elo);
-          }
-        }
-        
-        // Check if simulation is complete
-        if (currentStats.gamesCompleted >= numGames) {
-          setIsSimulationRunning(false);
-        }
-      },
-      boardFen
-    );
+    setError(null);
+    setIsInitializing(true);
     
-    setChessEngine(engine);
-    engine.startSimulation();
+    try {
+      setIsSimulationRunning(true);
+      setSimulationProgress(0);
+      setStats({
+        gamesCompleted: 0,
+        whiteWins: 0,
+        blackWins: 0,
+        draws: 0,
+        totalGames: numGames,
+        whiteWinPercentage: 0,
+        blackWinPercentage: 0,
+        drawPercentage: 0,
+      });
+      setEloDifference(null);
+
+      const engine = new ChessEngine(
+        numGames,
+        (fen, lastMove, progress) => {
+          setSimulationProgress(progress);
+        },
+        (result) => {
+          setLastResult(result);
+          const currentStats = engine.getStats();
+          setStats(currentStats);
+          
+          // Calculate Elo difference if we have enough games
+          if (currentStats.gamesCompleted > 0) {
+            const whiteWinRate = currentStats.whiteWins / currentStats.gamesCompleted;
+            // Only calculate if not 0% or 100%
+            if (whiteWinRate > 0 && whiteWinRate < 1) {
+              const elo = engine.calculateEloDifference(whiteWinRate);
+              setEloDifference(elo);
+            }
+          }
+          
+          // Check if simulation is complete
+          if (currentStats.gamesCompleted >= numGames) {
+            setIsSimulationRunning(false);
+          }
+        },
+        boardFen
+      );
+      
+      setChessEngine(engine);
+      
+      // Initialize and start the engine
+      await engine.initialize();
+      await engine.startSimulation();
+    } catch (err) {
+      console.error('Failed to start simulation:', err);
+      setError('Failed to initialize chess engines. Please try again.');
+      setIsSimulationRunning(false);
+      if (chessEngine) {
+        chessEngine.stop();
+        setChessEngine(null);
+      }
+    } finally {
+      setIsInitializing(false);
+    }
   };
 
   const handleStopSimulation = () => {
@@ -101,6 +121,13 @@ export default function Home() {
       <div className="max-w-6xl mx-auto">
         <h1 className="text-3xl font-bold text-center mb-8">Chess Handicap Analyzer</h1>
         
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6" role="alert">
+            <strong className="font-bold">Error: </strong>
+            <span className="block sm:inline">{error}</span>
+          </div>
+        )}
+        
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-white p-6 rounded-lg shadow">
             <h2 className="text-xl font-semibold mb-4">Configure Chess Board</h2>
@@ -110,7 +137,7 @@ export default function Home() {
             <div className="flex justify-center">
               <ChessBoard 
                 onBoardChange={handleBoardChange}
-                disabled={isSimulationRunning}
+                disabled={isSimulationRunning || isInitializing}
               />
             </div>
           </div>
@@ -119,7 +146,7 @@ export default function Home() {
             <SimulationControl
               onStartSimulation={handleStartSimulation}
               onStopSimulation={handleStopSimulation}
-              isRunning={isSimulationRunning}
+              isRunning={isSimulationRunning || isInitializing}
               progress={simulationProgress}
               stats={stats}
               eloDifference={eloDifference}

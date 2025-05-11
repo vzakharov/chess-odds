@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "stockfish": "^16.0.0",
+    "stockfish-nnue.wasm": "^1.0.0-1946a675.smolnet"
+  },
+  "devDependencies": {
+    "worker-loader": "^3.0.8"
+  }
+}

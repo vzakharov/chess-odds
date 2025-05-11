@@ -1,5 +1,5 @@
 import { Chess } from 'chess.js';
-import Engine from 'stockfish';
+import { StockfishManager } from './stockfishManager';
 
 export interface GameResult {
   winner: 'white' | 'black' | 'draw';
@@ -8,8 +8,8 @@ export interface GameResult {
 }
 
 export class ChessEngine {
-  private engine1: any;
-  private engine2: any;
+  private engine1Id = 'engine1';
+  private engine2Id = 'engine2';
   private isThinking1 = false;
   private isThinking2 = false;
   private game = new Chess();
@@ -23,6 +23,7 @@ export class ChessEngine {
   private moveLimit = 200;
   private moveTime = 100; // milliseconds to think per move
   private handicap: 'white' | 'black' | null = null;
+  private initialized = false;
 
   constructor(
     totalGames: number,
@@ -31,23 +32,10 @@ export class ChessEngine {
     startingPosition: string = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
     handicap: 'white' | 'black' | null = null
   ) {
-    this.engine1 = Engine();
-    this.engine2 = Engine();
     this.totalGames = totalGames;
     this.onProgress = onProgress;
     this.onGameEnd = onGameEnd;
     this.handicap = handicap;
-    
-    // Set up both engines
-    this.engine1.postMessage('uci');
-    this.engine1.postMessage('isready');
-    
-    this.engine2.postMessage('uci');
-    this.engine2.postMessage('isready');
-
-    // Set up listeners for engine outputs
-    this.engine1.onmessage = (line: string) => this.handleEngine1Message(line);
-    this.engine2.onmessage = (line: string) => this.handleEngine2Message(line);
 
     // Set the starting position
     if (startingPosition !== 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1') {
@@ -55,7 +43,39 @@ export class ChessEngine {
     }
   }
 
-  public startSimulation(): void {
+  public async initialize(): Promise<void> {
+    if (this.initialized) return;
+    
+    try {
+      // Initialize both engine instances
+      await Promise.all([
+        StockfishManager.createInstance(this.engine1Id),
+        StockfishManager.createInstance(this.engine2Id)
+      ]);
+      
+      // Setup UCI for both engines
+      StockfishManager.sendCommand(this.engine1Id, 'uci');
+      StockfishManager.sendCommand(this.engine2Id, 'uci');
+      
+      // Set engine ready
+      StockfishManager.sendCommand(this.engine1Id, 'isready');
+      StockfishManager.sendCommand(this.engine2Id, 'isready');
+      
+      // Register message listeners for bestmove responses
+      StockfishManager.addMessageListener(this.engine1Id, 'bestmove', (line) => this.handleEngine1Message(line));
+      StockfishManager.addMessageListener(this.engine2Id, 'bestmove', (line) => this.handleEngine2Message(line));
+      
+      this.initialized = true;
+    } catch (error) {
+      console.error('Failed to initialize Stockfish engines:', error);
+      throw error;
+    }
+  }
+
+  public async startSimulation(): Promise<void> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
     this.resetGame();
     this.nextMove();
   }
@@ -77,12 +97,12 @@ export class ChessEngine {
     // Determine which engine should play this move
     if (isWhiteTurn) {
       this.isThinking1 = true;
-      this.engine1.postMessage(`position fen ${this.game.fen()}`);
-      this.engine1.postMessage(`go movetime ${this.moveTime}`);
+      StockfishManager.sendCommand(this.engine1Id, `position fen ${this.game.fen()}`);
+      StockfishManager.sendCommand(this.engine1Id, `go movetime ${this.moveTime}`);
     } else {
       this.isThinking2 = true;
-      this.engine2.postMessage(`position fen ${this.game.fen()}`);
-      this.engine2.postMessage(`go movetime ${this.moveTime}`);
+      StockfishManager.sendCommand(this.engine2Id, `position fen ${this.game.fen()}`);
+      StockfishManager.sendCommand(this.engine2Id, `go movetime ${this.moveTime}`);
     }
   }
 
@@ -186,8 +206,8 @@ export class ChessEngine {
   }
 
   public stop(): void {
-    this.engine1.postMessage('quit');
-    this.engine2.postMessage('quit');
+    StockfishManager.terminateInstance(this.engine1Id);
+    StockfishManager.terminateInstance(this.engine2Id);
   }
 
   public calculateEloDifference(winPercentage: number): number {
