@@ -1,103 +1,143 @@
-import Image from "next/image";
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import ChessBoard from '../components/ChessBoard';
+import SimulationControl from '../components/SimulationControl';
+import { ChessPiece } from '../utils/fenUtils';
+import { ChessEngine, GameResult } from '../utils/chessEngine';
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [boardFen, setBoardFen] = useState('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+  const [removedPieces, setRemovedPieces] = useState<ChessPiece[]>([]);
+  const [isSimulationRunning, setIsSimulationRunning] = useState(false);
+  const [simulationProgress, setSimulationProgress] = useState(0);
+  const [lastResult, setLastResult] = useState<GameResult | null>(null);
+  const [chessEngine, setChessEngine] = useState<ChessEngine | null>(null);
+  const [stats, setStats] = useState({
+    gamesCompleted: 0,
+    whiteWins: 0,
+    blackWins: 0,
+    draws: 0,
+    totalGames: 0,
+    whiteWinPercentage: 0,
+    blackWinPercentage: 0,
+    drawPercentage: 0,
+  });
+  const [eloDifference, setEloDifference] = useState<number | null>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+  // Clean up the chess engine when component unmounts
+  useEffect(() => {
+    return () => {
+      if (chessEngine) {
+        chessEngine.stop();
+      }
+    };
+  }, [chessEngine]);
+
+  const handleBoardChange = (fen: string, pieces: ChessPiece[]) => {
+    setBoardFen(fen);
+    setRemovedPieces(pieces);
+  };
+
+  const handleStartSimulation = (numGames: number) => {
+    if (isSimulationRunning) return;
+
+    setIsSimulationRunning(true);
+    setSimulationProgress(0);
+    setStats({
+      gamesCompleted: 0,
+      whiteWins: 0,
+      blackWins: 0,
+      draws: 0,
+      totalGames: numGames,
+      whiteWinPercentage: 0,
+      blackWinPercentage: 0,
+      drawPercentage: 0,
+    });
+    setEloDifference(null);
+
+    const engine = new ChessEngine(
+      numGames,
+      (fen, lastMove, progress) => {
+        setSimulationProgress(progress);
+      },
+      (result) => {
+        setLastResult(result);
+        const currentStats = engine.getStats();
+        setStats(currentStats);
+        
+        // Calculate Elo difference if we have enough games
+        if (currentStats.gamesCompleted > 0) {
+          const whiteWinRate = currentStats.whiteWins / currentStats.gamesCompleted;
+          // Only calculate if not 0% or 100%
+          if (whiteWinRate > 0 && whiteWinRate < 1) {
+            const elo = engine.calculateEloDifference(whiteWinRate);
+            setEloDifference(elo);
+          }
+        }
+        
+        // Check if simulation is complete
+        if (currentStats.gamesCompleted >= numGames) {
+          setIsSimulationRunning(false);
+        }
+      },
+      boardFen
+    );
+    
+    setChessEngine(engine);
+    engine.startSimulation();
+  };
+
+  const handleStopSimulation = () => {
+    if (chessEngine) {
+      chessEngine.stop();
+      setChessEngine(null);
+    }
+    setIsSimulationRunning(false);
+  };
+
+  return (
+    <main className="min-h-screen p-6 bg-gray-50">
+      <div className="max-w-6xl mx-auto">
+        <h1 className="text-3xl font-bold text-center mb-8">Chess Handicap Analyzer</h1>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-white p-6 rounded-lg shadow">
+            <h2 className="text-xl font-semibold mb-4">Configure Chess Board</h2>
+            <p className="text-gray-600 mb-4">
+              Click on pieces to remove them and create a handicap scenario.
+            </p>
+            <div className="flex justify-center">
+              <ChessBoard 
+                onBoardChange={handleBoardChange}
+                disabled={isSimulationRunning}
+              />
+            </div>
+          </div>
+          
+          <div>
+            <SimulationControl
+              onStartSimulation={handleStartSimulation}
+              onStopSimulation={handleStopSimulation}
+              isRunning={isSimulationRunning}
+              progress={simulationProgress}
+              stats={stats}
+              eloDifference={eloDifference}
+              lastResult={lastResult}
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+            
+            <div className="mt-6 bg-white p-6 rounded-lg shadow">
+              <h2 className="text-xl font-semibold mb-2">How It Works</h2>
+              <ul className="list-disc pl-5 space-y-2 text-gray-700">
+                <li>Remove pieces from the board to create a handicap scenario</li>
+                <li>Start the simulation to run a series of games between two Stockfish engines</li>
+                <li>The results will show win percentages and calculate the Elo difference</li>
+                <li>Higher Elo difference means a stronger advantage for White</li>
+              </ul>
+            </div>
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+      </div>
+    </main>
   );
 }

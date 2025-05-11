@@ -1,36 +1,68 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Chess Odds Analyzer
+
+A Next.js application that allows you to assess various chess handicaps by simulating games between two Stockfish engines and calculating the Elo difference between them.
+
+## Features
+
+- Interactive chess board where you can remove pieces to create handicap scenarios
+- Run simulations of games between two Stockfish engines
+- Calculate win percentages and estimated Elo differences
+- Real-time progress tracking
+- Browser-based simulation using WebAssembly
+
+## How It Works
+
+1. Configure the chess board by removing pieces to create a handicap scenario
+2. Set the number of games to simulate
+3. Start the simulation to let two Stockfish engines play against each other
+4. Review the results, including win percentages and estimated Elo difference
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node.js 18+ and npm
+
+### Installation
+
+1. Clone the repository:
+   ```
+   git clone https://github.com/yourusername/chess-odds.git
+   cd chess-odds
+   ```
+
+2. Install dependencies:
+   ```
+   npm install
+   ```
+
+3. Run the development server:
+   ```
+   npm run dev
+   ```
+
+4. Open [http://localhost:3000](http://localhost:3000) in your browser to see the application.
+
+## Technical Details
+
+This project uses:
+
+- Next.js for the frontend framework
+- Stockfish WebAssembly for the chess engine
+- chess.js for chess game logic
+- chessboardjsx for the interactive chess board
+- Tailwind CSS for styling
+
+## ELO Calculation
+
+The Elo difference is calculated using the formula:
+
+```
+Elo diff = -400 * log10(1/W - 1)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Where W is the winning percentage of the player.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## License
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
