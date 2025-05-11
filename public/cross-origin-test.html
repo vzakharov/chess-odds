@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cross-Origin Isolation Test</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        pre { 
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Cross-Origin Isolation Test</h1>
+    
+    <div id="crossOriginStatus" class="status"></div>
+    
+    <h2>Headers Check</h2>
+    <div id="headersStatus" class="status"></div>
+    
+    <h2>SharedArrayBuffer Test</h2>
+    <div id="sabStatus" class="status"></div>
+    
+    <h2>Worker Test</h2>
+    <div id="workerStatus" class="status"></div>
+    <pre id="workerOutput"></pre>
+    
+    <script>
+        // Check cross-origin isolation
+        const crossOriginStatus = document.getElementById('crossOriginStatus');
+        if (window.crossOriginIsolated) {
+            crossOriginStatus.textContent = '✅ crossOriginIsolated: true - This page is cross-origin isolated!';
+            crossOriginStatus.classList.add('success');
+        } else {
+            crossOriginStatus.textContent = '❌ crossOriginIsolated: false - This page is NOT cross-origin isolated!';
+            crossOriginStatus.classList.add('error');
+        }
+        
+        // Check headers
+        const headersStatus = document.getElementById('headersStatus');
+        fetch(window.location.href)
+            .then(response => {
+                const coep = response.headers.get('Cross-Origin-Embedder-Policy');
+                const coop = response.headers.get('Cross-Origin-Opener-Policy');
+                
+                let html = `<div>Cross-Origin-Embedder-Policy: ${coep || 'not set'} ${coep === 'require-corp' ? '✅' : '❌'}</div>`;
+                html += `<div>Cross-Origin-Opener-Policy: ${coop || 'not set'} ${coop === 'same-origin' ? '✅' : '❌'}</div>`;
+                
+                if (coep === 'require-corp' && coop === 'same-origin') {
+                    html += '<div>✅ Both required headers are set correctly!</div>';
+                    headersStatus.classList.add('success');
+                } else {
+                    html += '<div>❌ Headers are not set correctly for cross-origin isolation!</div>';
+                    headersStatus.classList.add('error');
+                }
+                
+                headersStatus.innerHTML = html;
+            })
+            .catch(error => {
+                headersStatus.textContent = `Error checking headers: ${error.message}`;
+                headersStatus.classList.add('error');
+            });
+            
+        // Check SharedArrayBuffer
+        const sabStatus = document.getElementById('sabStatus');
+        try {
+            if (typeof SharedArrayBuffer === 'function') {
+                const sab = new SharedArrayBuffer(1024);
+                sabStatus.textContent = `✅ SharedArrayBuffer is available and can be instantiated`;
+                sabStatus.classList.add('success');
+            } else {
+                sabStatus.textContent = `❌ SharedArrayBuffer is not available`;
+                sabStatus.classList.add('error');
+            }
+        } catch (error) {
+            sabStatus.textContent = `❌ Error creating SharedArrayBuffer: ${error.message}`;
+            sabStatus.classList.add('error');
+        }
+        
+        // Test Worker with SharedArrayBuffer
+        const workerStatus = document.getElementById('workerStatus');
+        const workerOutput = document.getElementById('workerOutput');
+        
+        function log(message) {
+            const line = document.createElement('div');
+            line.textContent = message;
+            workerOutput.appendChild(line);
+        }
+        
+        try {
+            log('Creating worker...');
+            const worker = new Worker('/stockfish.worker.js');
+            
+            worker.onmessage = function(e) {
+                const data = e.data;
+                
+                if (data.type === 'log') {
+                    log(`Worker log: ${data.message}`);
+                } else {
+                    log(`Worker message: ${JSON.stringify(data)}`);
+                }
+            };
+            
+            worker.onerror = function(error) {
+                log(`Worker error: ${error.message}`);
+                workerStatus.textContent = `❌ Worker error: ${error.message}`;
+                workerStatus.classList.add('error');
+            };
+            
+            log('Testing SharedArrayBuffer transfer to worker...');
+            try {
+                const sab = new SharedArrayBuffer(1024);
+                worker.postMessage({ testSharedArrayBuffer: sab });
+                log('SharedArrayBuffer sent to worker successfully');
+                workerStatus.textContent = '✅ Worker created and SharedArrayBuffer transferred successfully';
+                workerStatus.classList.add('success');
+            } catch (error) {
+                log(`Error sending SharedArrayBuffer to worker: ${error.message}`);
+                workerStatus.textContent = `❌ Error sending SharedArrayBuffer to worker: ${error.message}`;
+                workerStatus.classList.add('error');
+            }
+            
+        } catch (error) {
+            log(`Error creating worker: ${error.message}`);
+            workerStatus.textContent = `❌ Error creating worker: ${error.message}`;
+            workerStatus.classList.add('error');
+        }
+    </script>
+</body>
+</html> 

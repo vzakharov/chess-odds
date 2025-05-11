@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stockfish WebAssembly Diagnosis</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        pre {
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            overflow: auto;
+            white-space: pre-wrap;
+        }
+        .log {
+            font-family: monospace;
+        }
+        .error { color: #d00; }
+        .success { color: #080; }
+        .warning { color: #c70; }
+        button {
+            padding: 8px 16px;
+            margin: 4px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Stockfish WebAssembly Diagnosis</h1>
+    <p>This page examines WebAssembly loading and initialization in detail.</p>
+
+    <div>
+        <button id="test-wasm">Test WebAssembly</button>
+        <button id="check-memory">Check Memory</button>
+        <button id="check-threading">Check Threading</button>
+        <button id="check-wasm-file">Check WASM File</button>
+    </div>
+
+    <h3>Console Output:</h3>
+    <pre id="log" class="log"></pre>
+
+    <script>
+        const logEl = document.getElementById('log');
+        const testWasmBtn = document.getElementById('test-wasm');
+        const checkMemoryBtn = document.getElementById('check-memory');
+        const checkThreadingBtn = document.getElementById('check-threading');
+        const checkWasmFileBtn = document.getElementById('check-wasm-file');
+
+        function log(message, type = 'info') {
+            const line = document.createElement('div');
+            const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+            line.textContent = `[${timestamp}] ${message}`;
+            line.className = type;
+            logEl.appendChild(line);
+            console.log(`[${type}]`, message);
+        }
+
+        // Test WebAssembly basic functionality
+        async function testWasm() {
+            try {
+                log('Testing basic WebAssembly support...');
+                
+                if (typeof WebAssembly !== 'object') {
+                    log('WebAssembly is not supported', 'error');
+                    return;
+                }
+                
+                log('WebAssembly object exists ✓');
+                
+                // Check if WebAssembly.validate exists
+                if (typeof WebAssembly.validate !== 'function') {
+                    log('WebAssembly.validate is not available', 'error');
+                    return;
+                }
+                
+                // Create a simple WASM module (the smallest valid WASM module is 8 bytes)
+                const bytes = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]);
+                
+                // Validate the module
+                if (!WebAssembly.validate(bytes)) {
+                    log('Failed to validate WebAssembly module', 'error');
+                    return;
+                }
+                
+                log('WebAssembly validation works ✓');
+                
+                // Try to instantiate the module
+                const module = await WebAssembly.instantiate(bytes);
+                
+                if (!module) {
+                    log('Failed to instantiate WebAssembly module', 'error');
+                    return;
+                }
+                
+                log('WebAssembly instantiation works ✓');
+                log('Basic WebAssembly functionality is working properly', 'success');
+            } catch (error) {
+                log(`WebAssembly test failed: ${error.message}`, 'error');
+                if (error.stack) {
+                    log(`Stack trace: ${error.stack}`, 'error');
+                }
+            }
+        }
+
+        // Check SharedArrayBuffer and memory-related features
+        function checkMemory() {
+            try {
+                log('Checking memory-related features...');
+                
+                // Check SharedArrayBuffer
+                if (typeof SharedArrayBuffer !== 'function') {
+                    log('SharedArrayBuffer is not available', 'error');
+                    return;
+                }
+                
+                log('SharedArrayBuffer is available ✓');
+                
+                // Try to create a SharedArrayBuffer
+                try {
+                    const sab = new SharedArrayBuffer(1024);
+                    log(`Created SharedArrayBuffer of size ${sab.byteLength} bytes ✓`);
+                } catch (error) {
+                    log(`Failed to create SharedArrayBuffer: ${error.message}`, 'error');
+                    return;
+                }
+                
+                // Check Atomics
+                if (typeof Atomics !== 'object') {
+                    log('Atomics object is not available', 'error');
+                    return;
+                }
+                
+                log('Atomics object is available ✓');
+                
+                // Try to use Atomics
+                try {
+                    const sab = new SharedArrayBuffer(4);
+                    const int32 = new Int32Array(sab);
+                    Atomics.store(int32, 0, 42);
+                    const value = Atomics.load(int32, 0);
+                    log(`Atomics operations working: ${value === 42 ? 'yes ✓' : 'no ✗'}`);
+                } catch (error) {
+                    log(`Failed to use Atomics: ${error.message}`, 'error');
+                    return;
+                }
+                
+                // Check if we can create WebAssembly.Memory with shared flag
+                try {
+                    const memory = new WebAssembly.Memory({
+                        initial: 1,
+                        maximum: 10,
+                        shared: true
+                    });
+                    
+                    if (!(memory.buffer instanceof SharedArrayBuffer)) {
+                        log('WebAssembly.Memory.buffer is not a SharedArrayBuffer', 'error');
+                        return;
+                    }
+                    
+                    log('WebAssembly shared memory works ✓');
+                    
+                    // Check if memory can grow
+                    try {
+                        const oldSize = memory.buffer.byteLength;
+                        memory.grow(1);
+                        const newSize = memory.buffer.byteLength;
+                        log(`Memory growth works: ${newSize > oldSize ? 'yes ✓' : 'no ✗'}`);
+                    } catch (error) {
+                        log(`Memory growth failed: ${error.message}`, 'warning');
+                    }
+                } catch (error) {
+                    log(`Failed to create shared WebAssembly.Memory: ${error.message}`, 'error');
+                    return;
+                }
+                
+                log('All memory-related features are working properly', 'success');
+            } catch (error) {
+                log(`Memory check failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Test threading support
+        function checkThreading() {
+            try {
+                log('Checking threading support...');
+                
+                // Check browser
+                const isChrome = navigator.userAgent.indexOf("Chrome") > -1;
+                const isFirefox = navigator.userAgent.indexOf("Firefox") > -1;
+                const isSafari = navigator.userAgent.indexOf("Safari") > -1 && navigator.userAgent.indexOf("Chrome") === -1;
+                
+                log(`Browser detection: Chrome: ${isChrome}, Firefox: ${isFirefox}, Safari: ${isSafari}`);
+                
+                // Check headers
+                fetch(window.location.href)
+                    .then(response => {
+                        const headers = response.headers;
+                        const coep = headers.get('Cross-Origin-Embedder-Policy') || 'not set';
+                        const coop = headers.get('Cross-Origin-Opener-Policy') || 'not set';
+                        
+                        log(`CORS Headers:`);
+                        log(`- Cross-Origin-Embedder-Policy: ${coep} ${coep === 'require-corp' ? '✓' : '✗'}`);
+                        log(`- Cross-Origin-Opener-Policy: ${coop} ${coop === 'same-origin' ? '✓' : '✗'}`);
+                        
+                        if (coep !== 'require-corp' || coop !== 'same-origin') {
+                            log('CORS headers are not set correctly for threading', 'warning');
+                        } else {
+                            log('CORS headers are correct ✓');
+                        }
+                    })
+                    .catch(error => {
+                        log(`Failed to check headers: ${error.message}`, 'error');
+                    });
+                
+                // Clone a SharedArrayBuffer (test structured cloning)
+                try {
+                    const sab = new SharedArrayBuffer(1024);
+                    const worker = new Worker('data:application/javascript,onmessage=function(e){postMessage(e.data)}');
+                    
+                    worker.onmessage = function(e) {
+                        if (e.data instanceof SharedArrayBuffer) {
+                            log('Structured cloning of SharedArrayBuffer works ✓', 'success');
+                        } else {
+                            log('Structured cloning failed: received object is not a SharedArrayBuffer', 'error');
+                        }
+                        worker.terminate();
+                    };
+                    
+                    worker.onerror = function(error) {
+                        log(`Worker error: ${error.message}`, 'error');
+                        worker.terminate();
+                    };
+                    
+                    log('Testing structured cloning of SharedArrayBuffer...');
+                    worker.postMessage(sab);
+                } catch (error) {
+                    log(`Structured cloning test failed: ${error.message}`, 'error');
+                }
+                
+                // Check for hardware concurrency
+                if (navigator.hardwareConcurrency) {
+                    log(`Hardware concurrency: ${navigator.hardwareConcurrency} threads`);
+                } else {
+                    log('navigator.hardwareConcurrency is not available', 'warning');
+                }
+                
+                // Stockfish's own threading test
+                function wasmThreadsSupported() {
+                    // WebAssembly 1.0
+                    const source = new Uint8Array([0x0, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+                    if (
+                        typeof WebAssembly !== "object" ||
+                        typeof WebAssembly.validate !== "function"
+                    )
+                        return false;
+                    if (!WebAssembly.validate(source)) return false;
+
+                    // SharedArrayBuffer
+                    if (typeof SharedArrayBuffer !== "function") return false;
+
+                    // Atomics
+                    if (typeof Atomics !== "object") return false;
+
+                    // Shared memory
+                    try {
+                        const mem = new WebAssembly.Memory({ shared: true, initial: 8, maximum: 16 });
+                        if (!(mem.buffer instanceof SharedArrayBuffer)) return false;
+
+                        // Structured cloning
+                        try {
+                            // You have to make sure nobody cares about these messages!
+                            self.postMessage(mem, "*");
+                        } catch (e) {
+                            log(`Structured cloning in Stockfish test failed: ${e}`, 'warning');
+                            return false;
+                        }
+
+                        // Growable shared memory (optional)
+                        try {
+                            mem.grow(8);
+                        } catch (e) {
+                            log(`Growable shared memory failed in Stockfish test: ${e}`, 'warning');
+                            return false;
+                        }
+
+                        return true;
+                    } catch (e) {
+                        log(`WebAssembly shared memory error in Stockfish test: ${e}`, 'error');
+                        return false;
+                    }
+                }
+                
+                const supported = wasmThreadsSupported();
+                log(`Stockfish's wasmThreadsSupported() result: ${supported ? 'true ✓' : 'false ✗'}`);
+                
+                if (supported) {
+                    log('All threading requirements appear to be met', 'success');
+                } else {
+                    log('Some threading requirements are not met', 'warning');
+                }
+            } catch (error) {
+                log(`Threading check failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Check if the WASM file can be loaded
+        async function checkWasmFile() {
+            try {
+                log('Checking stockfish.wasm file...');
+                
+                // Try to fetch the WASM file
+                const response = await fetch('/stockfish.wasm');
+                
+                if (!response.ok) {
+                    log(`Failed to fetch stockfish.wasm: ${response.status} ${response.statusText}`, 'error');
+                    return;
+                }
+                
+                const contentType = response.headers.get('Content-Type');
+                log(`WASM file content type: ${contentType || 'not set'}`);
+                
+                if (contentType && !contentType.includes('application/wasm') && !contentType.includes('application/octet-stream')) {
+                    log('Warning: The WASM file does not have the correct content type', 'warning');
+                }
+                
+                // Get file size
+                const contentLength = response.headers.get('Content-Length');
+                if (contentLength) {
+                    log(`WASM file size: ${Math.round(contentLength / 1024)} KB`);
+                }
+                
+                // Try to compile the WASM file
+                try {
+                    const buffer = await response.arrayBuffer();
+                    log(`Received WASM buffer of size ${buffer.byteLength} bytes`);
+                    
+                    // Compile the module
+                    log('Compiling WebAssembly module...');
+                    const module = await WebAssembly.compile(buffer);
+                    
+                    log('WebAssembly module compiled successfully ✓', 'success');
+                    
+                    // Check module exports
+                    const exports = WebAssembly.Module.exports(module);
+                    log(`Module has ${exports.length} exports`);
+                    
+                    // Check module imports
+                    const imports = WebAssembly.Module.imports(module);
+                    log(`Module has ${imports.length} imports`);
+                    
+                    // Look for threading-related imports
+                    const threadingImports = imports.filter(imp => 
+                        imp.module === 'env' && 
+                        (imp.name.includes('thread') || imp.name.includes('pthread'))
+                    );
+                    
+                    if (threadingImports.length > 0) {
+                        log(`Module has ${threadingImports.length} threading-related imports`);
+                        log('This confirms the module uses threads');
+                    }
+                    
+                } catch (error) {
+                    log(`Failed to compile WASM module: ${error.message}`, 'error');
+                    return;
+                }
+                
+                log('WASM file check complete', 'success');
+            } catch (error) {
+                log(`WASM file check failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Button event listeners
+        testWasmBtn.addEventListener('click', testWasm);
+        checkMemoryBtn.addEventListener('click', checkMemory);
+        checkThreadingBtn.addEventListener('click', checkThreading);
+        checkWasmFileBtn.addEventListener('click', checkWasmFile);
+
+        // Log browser and environment info when the page loads
+        window.addEventListener('load', function() {
+            log('Stockfish WebAssembly Diagnosis Tool');
+            log(`User Agent: ${navigator.userAgent}`);
+            
+            if (navigator.deviceMemory) {
+                log(`Device Memory: ${navigator.deviceMemory} GB`);
+            }
+            
+            if (navigator.hardwareConcurrency) {
+                log(`Hardware Concurrency: ${navigator.hardwareConcurrency} threads`);
+            }
+            
+            log('Click the buttons above to run diagnostics');
+        });
+    </script>
+</body>
+</html> 

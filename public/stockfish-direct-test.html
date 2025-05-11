@@ -25,6 +25,10 @@
             margin-right: 10px;
             padding: 5px 10px;
         }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -47,10 +51,13 @@
         
         let stockfish = null;
         
-        function log(message) {
+        function log(message, isError = false) {
             const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
             const line = document.createElement('div');
             line.textContent = `[${timestamp}] ${message}`;
+            if (isError) {
+                line.className = 'error';
+            }
             output.appendChild(line);
             output.scrollTop = output.scrollHeight;
             console.log(message);
@@ -69,13 +76,13 @@
                         resolve();
                     };
                     script.onerror = (err) => {
-                        log(`Error loading script: ${err}`);
+                        log(`Error loading script: ${err}`, true);
                         reject(err);
                     };
                     document.head.appendChild(script);
                 });
             } catch (err) {
-                log(`Error: ${err.toString()}`);
+                log(`Error: ${err.toString()}`, true);
                 throw err;
             }
         }
@@ -88,45 +95,77 @@
                 
                 log('Checking if Stockfish function exists...');
                 if (typeof Stockfish !== 'function') {
-                    log('ERROR: Stockfish function not defined!');
+                    log('ERROR: Stockfish function not defined!', true);
                     return;
                 }
                 
                 log('Stockfish function found, initializing...');
-                log(typeof Stockfish);
-                log('Calling Stockfish()...');
+                log(`Stockfish type: ${typeof Stockfish}`);
                 
-                stockfish = await Stockfish();
+                // Dump the Stockfish function to debug
+                log(`Stockfish fn: ${Stockfish.toString().substring(0, 100)}...`);
                 
-                log('Stockfish initialized successfully!');
-                log(`Engine object keys: ${Object.keys(stockfish).join(', ')}`);
-                
-                // Set up message listener
-                stockfish.addMessageListener((line) => {
-                    log(`Engine: ${line}`);
-                });
-                
-                log('Engine ready!');
+                try {
+                    log('Calling Stockfish()...');
+                    const result = await Stockfish();
+                    log(`Stockfish() returned type: ${typeof result}`);
+                    
+                    if (!result) {
+                        log('ERROR: Stockfish() returned null or undefined!', true);
+                        return;
+                    }
+                    
+                    stockfish = result;
+                    log('Stockfish initialized successfully!');
+                    
+                    // Inspect what methods are available
+                    log(`Engine object keys: ${Object.keys(stockfish).join(', ')}`);
+                    
+                    // Set up message listener if it exists
+                    if (typeof stockfish.addMessageListener === 'function') {
+                        stockfish.addMessageListener((line) => {
+                            log(`Engine: ${line}`);
+                        });
+                        log('Added message listener successfully');
+                    } else {
+                        log('WARNING: stockfish.addMessageListener is not a function!', true);
+                    }
+                    
+                    log('Engine ready!');
+                } catch (initErr) {
+                    log(`Error initializing Stockfish: ${initErr}`, true);
+                    if (initErr.stack) {
+                        log(`Stack trace: ${initErr.stack}`, true);
+                    }
+                }
             } catch (err) {
-                log(`Initialization error: ${err.toString()}`);
+                log(`Initialization error: ${err.toString()}`, true);
                 if (err.stack) {
-                    log(`Stack trace: ${err.stack}`);
+                    log(`Stack trace: ${err.stack}`, true);
                 }
             }
         }
         
         function sendCommand(command) {
             if (!stockfish) {
-                log('Error: Engine not initialized!');
+                log('Error: Engine not initialized!', true);
                 return;
             }
             
             log(`Sending command: ${command}`);
             try {
-                stockfish.postMessage(command);
-                log('Command sent successfully');
+                if (typeof stockfish.postMessage === 'function') {
+                    stockfish.postMessage(command);
+                    log('Command sent successfully');
+                } else {
+                    log('ERROR: stockfish.postMessage is not a function!', true);
+                    log(`Available methods: ${Object.keys(stockfish).join(', ')}`);
+                }
             } catch (err) {
-                log(`Error sending command: ${err.toString()}`);
+                log(`Error sending command: ${err.toString()}`, true);
+                if (err.stack) {
+                    log(`Stack trace: ${err.stack}`, true);
+                }
             }
         }
         

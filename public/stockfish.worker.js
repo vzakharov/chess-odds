@@ -8,6 +8,10 @@ function log(message) {
   });
 }
 
+// Check for cross-origin isolation
+log(`Worker crossOriginIsolated: ${self.crossOriginIsolated}`);
+log(`Worker location: ${self.location.href}`);
+
 let stockfish = null;
 
 // Initialize the engine
@@ -59,6 +63,35 @@ self.onmessage = function(event) {
     }
     
     log('Sending command: ' + message.message);
-    stockfish.postMessage(message.message);
+    try {
+      stockfish.postMessage(message.message);
+    } catch (err) {
+      log('Error sending command: ' + err.toString());
+      self.postMessage({
+        type: 'error',
+        error: err.toString(),
+        message: 'Error sending command: ' + err.toString()
+      });
+    }
+  } else if (message.testSharedArrayBuffer) {
+    // Handle the SharedArrayBuffer test
+    try {
+      log(`Received SharedArrayBuffer test. Is SharedArrayBuffer: ${message.testSharedArrayBuffer instanceof SharedArrayBuffer}`);
+      log(`Worker crossOriginIsolated value: ${self.crossOriginIsolated}`);
+      
+      // Try to send it back to confirm two-way transfer works
+      self.postMessage({
+        type: 'sab-test-result',
+        success: true,
+        sab: message.testSharedArrayBuffer
+      });
+    } catch (err) {
+      log(`Error in SharedArrayBuffer test: ${err.toString()}`);
+      self.postMessage({
+        type: 'sab-test-result',
+        success: false,
+        error: err.toString()
+      });
+    }
   }
 };

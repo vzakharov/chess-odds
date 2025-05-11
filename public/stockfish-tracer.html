@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stockfish Initialization Tracer</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        pre {
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            overflow: auto;
+            max-height: 500px;
+            white-space: pre-wrap;
+        }
+        button {
+            padding: 8px 16px;
+            margin: 4px;
+        }
+        .error { color: red; }
+        #log { font-family: monospace; }
+    </style>
+</head>
+<body>
+    <h1>Stockfish Initialization Tracer</h1>
+    <p>This tool intercepts and traces the Stockfish.js initialization process.</p>
+    
+    <button id="start-trace">Start Tracing</button>
+    <button id="stop-trace">Stop Tracing</button>
+    
+    <h3>Trace Output:</h3>
+    <pre id="log"></pre>
+    
+    <script>
+        const logEl = document.getElementById('log');
+        const startTraceBtn = document.getElementById('start-trace');
+        const stopTraceBtn = document.getElementById('stop-trace');
+        
+        let traceActive = false;
+        
+        function log(message, error = false) {
+            const div = document.createElement('div');
+            div.textContent = message;
+            if (error) div.className = 'error';
+            logEl.appendChild(div);
+            logEl.scrollTop = logEl.scrollHeight;
+            console.log(message);
+        }
+        
+        // Create proxy for WebAssembly to track operations
+        function setupTracing() {
+            if (traceActive) return;
+            traceActive = true;
+            
+            log('Setting up tracing...');
+            
+            // Save original objects
+            const originalWebAssembly = window.WebAssembly;
+            const originalFetch = window.fetch;
+            const originalWorker = window.Worker;
+            
+            // Track various steps of initialization
+            let phase = 'setup';
+            let pendingPromises = 0;
+            
+            // Track memory so we can identify when it's being shared
+            let memories = [];
+            
+            // Create a tracer to print function calls
+            function trace(obj, name) {
+                return new Proxy(obj, {
+                    get(target, prop) {
+                        const original = target[prop];
+                        
+                        if (typeof original === 'function') {
+                            return function(...args) {
+                                if (traceActive) {
+                                    const argStr = args.map(arg => {
+                                        if (arg instanceof Uint8Array) return `Uint8Array(${arg.length})`;
+                                        if (arg instanceof ArrayBuffer) return `ArrayBuffer(${arg.byteLength})`;
+                                        if (arg instanceof WebAssembly.Module) return 'WebAssembly.Module';
+                                        if (typeof arg === 'object') return JSON.stringify(arg);
+                                        return String(arg);
+                                    }).join(', ');
+                                    
+                                    log(`${name}.${prop}(${argStr.substring(0, 100)}${argStr.length > 100 ? '...' : ''})`);
+                                }
+                                
+                                if (prop === 'instantiate' || prop === 'compile') {
+                                    log(`Starting WebAssembly.${prop}...`);
+                                    pendingPromises++;
+                                    phase = `wasm-${prop}`;
+                                    
+                                    return original.apply(target, args)
+                                        .then(result => {
+                                            pendingPromises--;
+                                            log(`✅ WebAssembly.${prop} succeeded`);
+                                            phase = 'after-wasm';
+                                            return result;
+                                        })
+                                        .catch(err => {
+                                            pendingPromises--;
+                                            log(`❌ WebAssembly.${prop} failed: ${err.message}`, true);
+                                            phase = 'error';
+                                            throw err;
+                                        });
+                                }
+                                
+                                // Track memory creation especially
+                                if (prop === 'Memory') {
+                                    const result = original.apply(target, args);
+                                    memories.push(result);
+                                    const options = args[0] || {};
+                                    log(`Created WebAssembly.Memory: initial=${options.initial}, maximum=${options.maximum}, shared=${options.shared}`);
+                                    log(`  Buffer is SharedArrayBuffer: ${result.buffer instanceof SharedArrayBuffer}`);
+                                    return result;
+                                }
+                                
+                                return original.apply(target, args);
+                            };
+                        } else if (prop === 'prototype' && original) {
+                            // Trace prototype methods
+                            return trace(original, `${name}.prototype`);
+                        } else {
+                            return original;
+                        }
+                    }
+                });
+            }
+            
+            // Trace fetch to see WASM loading
+            window.fetch = function(...args) {
+                const url = args[0];
+                if (typeof url === 'string' && url.includes('.wasm')) {
+                    log(`Fetching WASM file: ${url}`);
+                    phase = 'fetching-wasm';
+                    pendingPromises++;
+                    
+                    return originalFetch.apply(this, args)
+                        .then(response => {
+                            if (!response.ok) {
+                                log(`❌ Fetch failed: ${response.status} ${response.statusText}`, true);
+                                pendingPromises--;
+                                phase = 'error';
+                                return response;
+                            }
+                            
+                            log(`✅ Fetch succeeded: ${url}`);
+                            pendingPromises--;
+                            phase = 'after-fetch';
+                            return response;
+                        })
+                        .catch(err => {
+                            log(`❌ Fetch error: ${err.message}`, true);
+                            pendingPromises--;
+                            phase = 'error';
+                            throw err;
+                        });
+                }
+                
+                return originalFetch.apply(this, args);
+            };
+            
+            // Trace Worker creation
+            window.Worker = function(url, options) {
+                log(`Creating Worker: ${url}`);
+                return new originalWorker(url, options);
+            };
+            
+            // Install WebAssembly proxy
+            window.WebAssembly = trace(originalWebAssembly, 'WebAssembly');
+            
+            // Hook console methods to log them as well
+            const originalConsole = {
+                log: console.log,
+                warn: console.warn,
+                error: console.error
+            };
+            
+            console.log = function(...args) {
+                if (traceActive) {
+                    const message = args.map(arg => {
+                        if (typeof arg === 'string') return arg;
+                        return JSON.stringify(arg);
+                    }).join(' ');
+                    log(`console.log: ${message}`);
+                }
+                return originalConsole.log.apply(console, args);
+            };
+            
+            console.warn = function(...args) {
+                if (traceActive) {
+                    const message = args.map(arg => {
+                        if (typeof arg === 'string') return arg;
+                        return JSON.stringify(arg);
+                    }).join(' ');
+                    log(`console.warn: ${message}`);
+                }
+                return originalConsole.warn.apply(console, args);
+            };
+            
+            console.error = function(...args) {
+                if (traceActive) {
+                    const message = args.map(arg => {
+                        if (typeof arg === 'string') return arg;
+                        try {
+                            return JSON.stringify(arg);
+                        } catch (e) {
+                            return String(arg);
+                        }
+                    }).join(' ');
+                    log(`console.error: ${message}`, true);
+                }
+                return originalConsole.error.apply(console, args);
+            };
+            
+            // Set monitoring interval
+            const intervalId = setInterval(() => {
+                if (!traceActive) {
+                    clearInterval(intervalId);
+                    return;
+                }
+                
+                if (phase === 'wasm-instantiate' || phase === 'wasm-compile') {
+                    log(`Still waiting for WebAssembly ${phase.split('-')[1]} to complete (${pendingPromises} pending)...`);
+                }
+            }, 5000);
+            
+            log('Tracing enabled successfully. Loading Stockfish...');
+            
+            // Load Stockfish with tracing active
+            const script = document.createElement('script');
+            script.src = '/stockfish.js';
+            script.onload = function() {
+                log('Stockfish.js loaded successfully ✅');
+                
+                if (typeof Stockfish === 'function') {
+                    log(`Stockfish is a function. Initializing with 10s timeout...`);
+                    
+                    // Set a timeout for Stockfish call
+                    const timeoutId = setTimeout(() => {
+                        log(`⚠️ Timeout reached waiting for Stockfish() to complete`, true);
+                    }, 10000);
+                    
+                    // Call Stockfish with promise to track
+                    try {
+                        const promise = Stockfish();
+                        log(`Stockfish() returned a Promise.`);
+                        
+                        promise.then((engine) => {
+                            clearTimeout(timeoutId);
+                            log(`✅ Stockfish engine initialized successfully!`);
+                            
+                            if (engine) {
+                                log(`Engine object keys: ${Object.keys(engine).join(', ')}`);
+                                
+                                // Test UCI command
+                                engine.addMessageListener((line) => {
+                                    log(`Engine output: ${line}`);
+                                });
+                                
+                                log(`Sending 'uci' command...`);
+                                engine.postMessage('uci');
+                            } else {
+                                log(`❌ Engine object is null or undefined`, true);
+                            }
+                        }).catch((err) => {
+                            clearTimeout(timeoutId);
+                            log(`❌ Stockfish() promise rejected: ${err.message}`, true);
+                            if (err.stack) {
+                                log(`Stack trace: ${err.stack}`, true);
+                            }
+                        });
+                    } catch (err) {
+                        clearTimeout(timeoutId);
+                        log(`❌ Error calling Stockfish(): ${err.message}`, true);
+                        if (err.stack) {
+                            log(`Stack trace: ${err.stack}`, true);
+                        }
+                    }
+                } else {
+                    log(`❌ Stockfish is not a function: ${typeof Stockfish}`, true);
+                }
+            };
+            
+            script.onerror = function(err) {
+                log(`❌ Failed to load Stockfish.js: ${err}`, true);
+            };
+            
+            document.head.appendChild(script);
+        }
+        
+        // Remove tracing
+        function stopTracing() {
+            if (!traceActive) return;
+            traceActive = false;
+            log('Tracing disabled. Reload the page for a clean state.');
+        }
+        
+        // Event listeners
+        startTraceBtn.addEventListener('click', setupTracing);
+        stopTraceBtn.addEventListener('click', stopTracing);
+        
+        log('Stockfish Initialization Tracer ready. Click "Start Tracing" to begin.');
+    </script>
+</body>
+</html> 

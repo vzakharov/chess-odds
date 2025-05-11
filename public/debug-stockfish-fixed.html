@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stockfish.wasm Debug (Fixed)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        #output {
+            border: 1px solid #ccc;
+            padding: 10px;
+            height: 400px;
+            overflow-y: auto;
+            background-color: #f5f5f5;
+            font-family: monospace;
+            white-space: pre-wrap;
+            margin-bottom: 20px;
+        }
+        button {
+            margin-right: 10px;
+            padding: 5px 10px;
+        }
+        .command-input {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        #command {
+            flex-grow: 1;
+            margin-right: 10px;
+            padding: 5px;
+        }
+        .diagnostics {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #e9f7fe;
+            border: 1px solid #c2e0ff;
+        }
+    </style>
+</head>
+<body>
+    <h1>Stockfish.wasm Debug (Fixed)</h1>
+    
+    <div class="diagnostics">
+        <h3>Environment Info:</h3>
+        <div id="env-info"></div>
+    </div>
+
+    <h3>Engine Output:</h3>
+    <div id="output"></div>
+    
+    <div class="command-input">
+        <input type="text" id="command" placeholder="Enter UCI command (e.g., 'uci' or 'position startpos')">
+        <button id="send">Send</button>
+    </div>
+    
+    <div>
+        <button id="init">Initialize Engine</button>
+        <button id="uci">UCI</button>
+        <button id="isready">isready</button>
+        <button id="position">position startpos</button>
+        <button id="go">go depth 10</button>
+        <button id="stop">stop</button>
+    </div>
+
+    <script>
+        const output = document.getElementById('output');
+        const commandInput = document.getElementById('command');
+        const sendButton = document.getElementById('send');
+        const initButton = document.getElementById('init');
+        const uciButton = document.getElementById('uci');
+        const isreadyButton = document.getElementById('isready');
+        const positionButton = document.getElementById('position');
+        const goButton = document.getElementById('go');
+        const stopButton = document.getElementById('stop');
+        const envInfoDiv = document.getElementById('env-info');
+        
+        let worker = null;
+
+        function logMessage(message, isError = false) {
+            const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+            const line = document.createElement('div');
+            line.textContent = `[${timestamp}] ${message}`;
+            if (isError) {
+                line.style.color = 'red';
+            }
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+        }
+        
+        function checkEnvironment() {
+            const env = {
+                crossOriginIsolated: window.crossOriginIsolated,
+                sharedArrayBuffer: typeof SharedArrayBuffer === 'function',
+                atomics: typeof Atomics === 'object'
+            };
+            
+            fetch(window.location.href)
+                .then(response => {
+                    const headers = {
+                        coep: response.headers.get('Cross-Origin-Embedder-Policy'),
+                        coop: response.headers.get('Cross-Origin-Opener-Policy')
+                    };
+                    
+                    envInfoDiv.innerHTML = `
+                        <p>crossOriginIsolated: ${env.crossOriginIsolated ? '✅' : '❌'}</p>
+                        <p>SharedArrayBuffer: ${env.sharedArrayBuffer ? '✅' : '❌'}</p>
+                        <p>Atomics: ${env.atomics ? '✅' : '❌'}</p>
+                        <p>COEP: ${headers.coep || 'not set'} ${headers.coep === 'require-corp' ? '✅' : '❌'}</p>
+                        <p>COOP: ${headers.coop || 'not set'} ${headers.coop === 'same-origin' ? '✅' : '❌'}</p>
+                    `;
+                });
+        }
+
+        function initEngine() {
+            if (worker) {
+                worker.terminate();
+                logMessage('Terminated existing worker');
+            }
+            
+            logMessage('Creating new worker...');
+            // Use the fixed worker
+            worker = new Worker('/stockfish-fixed.worker.js');
+            
+            worker.onmessage = function(e) {
+                const data = e.data;
+                
+                if (data.type === 'log') {
+                    logMessage('Worker: ' + data.message);
+                } else if (data.type === 'error') {
+                    logMessage('Error: ' + data.message, true);
+                    console.error('Worker error:', data);
+                } else if (data.type === 'ready') {
+                    logMessage(`Engine is ready! Thread support: ${data.usingThreads ? 'Yes' : 'No'}`);
+                    if (data.usingCustomMemory) {
+                        logMessage('Using custom memory allocation');
+                    }
+                } else if (data.type === 'stockfish-output') {
+                    logMessage('Engine: ' + data.line);
+                } else if (data.type === 'status') {
+                    logMessage('Status: ' + JSON.stringify(data));
+                }
+            };
+            
+            worker.onerror = function(error) {
+                logMessage('Worker error: ' + error.message, true);
+            };
+            
+            logMessage('Initializing engine...');
+            worker.postMessage({ cmd: 'init' });
+        }
+
+        function sendCommand(command) {
+            if (!worker) {
+                logMessage('Error: Engine not initialized', true);
+                return;
+            }
+            
+            logMessage('Sending: ' + command);
+            worker.postMessage({ cmd: 'send', message: command });
+        }
+
+        // Event listeners
+        initButton.addEventListener('click', initEngine);
+        
+        sendButton.addEventListener('click', () => {
+            const command = commandInput.value.trim();
+            if (command) {
+                sendCommand(command);
+                commandInput.value = '';
+            }
+        });
+        
+        commandInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendButton.click();
+            }
+        });
+        
+        uciButton.addEventListener('click', () => sendCommand('uci'));
+        isreadyButton.addEventListener('click', () => sendCommand('isready'));
+        positionButton.addEventListener('click', () => sendCommand('position startpos'));
+        goButton.addEventListener('click', () => sendCommand('go depth 10'));
+        stopButton.addEventListener('click', () => sendCommand('stop'));
+        
+        // Check environment on load
+        checkEnvironment();
+        
+        // Initial message
+        logMessage('Stockfish.wasm Debug Page (Fixed)');
+        logMessage('Click "Initialize Engine" to start');
+    </script>
+</body>
+</html> 

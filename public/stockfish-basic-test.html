@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stockfish Basic Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        pre {
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            padding: 10px;
+            overflow: auto;
+            font-size: 14px;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+        .warning {
+            color: orange;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Stockfish Basic Test</h1>
+    <p>This is a minimal test to ensure stockfish.js loads correctly</p>
+    
+    <h3>Status:</h3>
+    <div id="status">Loading...</div>
+    
+    <h3>Results:</h3>
+    <pre id="output"></pre>
+    
+    <div>
+        <button id="forceLoad">Force Reload Without Wasm</button>
+    </div>
+    
+    <script>
+        const statusDiv = document.getElementById('status');
+        const outputDiv = document.getElementById('output');
+        const forceLoadBtn = document.getElementById('forceLoad');
+        
+        function log(message) {
+            outputDiv.textContent += message + '\n';
+            console.log(message);
+        }
+        
+        // Timeout promise helper
+        function timeoutPromise(promise, timeoutMs) {
+            let timeoutHandle;
+            const timeoutPromise = new Promise((_, reject) => {
+                timeoutHandle = setTimeout(() => {
+                    reject(new Error(`Operation timed out after ${timeoutMs}ms`));
+                }, timeoutMs);
+            });
+            
+            return Promise.race([
+                promise,
+                timeoutPromise
+            ]).finally(() => {
+                clearTimeout(timeoutHandle);
+            });
+        }
+        
+        // Function to check CORS headers
+        async function checkHeaders() {
+            try {
+                const response = await fetch(window.location.href);
+                const headers = response.headers;
+                const coep = headers.get('Cross-Origin-Embedder-Policy');
+                const coop = headers.get('Cross-Origin-Opener-Policy');
+                
+                log(`CORS Headers:`);
+                log(`- Cross-Origin-Embedder-Policy: ${coep || 'not set'} ${coep === 'require-corp' ? '✓' : '✗'}`);
+                log(`- Cross-Origin-Opener-Policy: ${coop || 'not set'} ${coop === 'same-origin' ? '✓' : '✗'}`);
+                
+                if (coep !== 'require-corp' || coop !== 'same-origin') {
+                    log(`WARNING: CORS headers are not set correctly for SharedArrayBuffer`);
+                    return false;
+                }
+                return true;
+            } catch (error) {
+                log(`Error checking headers: ${error.message}`);
+                return false;
+            }
+        }
+        
+        // Function to check WebAssembly support
+        function checkWasm() {
+            if (typeof WebAssembly !== 'object') {
+                log('ERROR: WebAssembly is not supported in this browser');
+                return false;
+            }
+            
+            log('WebAssembly is supported ✓');
+            
+            // Check for streaming compilation
+            if (typeof WebAssembly.instantiateStreaming !== 'function') {
+                log('WARNING: WebAssembly.instantiateStreaming is not available');
+            } else {
+                log('WebAssembly streaming compilation is supported ✓');
+            }
+            
+            return true;
+        }
+        
+        // Function to check if Stockfish works
+        async function testStockfish() {
+            try {
+                log(`Starting Stockfish test at ${new Date().toISOString()}`);
+                
+                // Check headers
+                const headersOk = await checkHeaders();
+                if (!headersOk) {
+                    statusDiv.innerHTML = '<span class="warning">WARNING: CORS headers not set correctly</span>';
+                }
+                
+                // Check WebAssembly support
+                checkWasm();
+                
+                // First check if SharedArrayBuffer is available
+                if (typeof SharedArrayBuffer !== 'function') {
+                    statusDiv.innerHTML = '<span class="error">ERROR: SharedArrayBuffer is not available</span>';
+                    log('ERROR: SharedArrayBuffer is not available in this browser or context');
+                    log('This feature requires HTTPS and specific CORS headers:');
+                    log('- Cross-Origin-Embedder-Policy: require-corp');
+                    log('- Cross-Origin-Opener-Policy: same-origin');
+                    return;
+                }
+                
+                log('SharedArrayBuffer is available ✓');
+                
+                // Create script element and load Stockfish
+                const script = document.createElement('script');
+                script.src = '/stockfish.js';
+                
+                await new Promise((resolve, reject) => {
+                    script.onload = resolve;
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                });
+                
+                log('stockfish.js loaded successfully ✓');
+                
+                // Check if Stockfish is defined
+                if (typeof Stockfish !== 'function') {
+                    statusDiv.innerHTML = '<span class="error">ERROR: Stockfish function not defined after loading script</span>';
+                    log('ERROR: Stockfish function is not defined after loading script');
+                    return;
+                }
+                
+                log('Stockfish function is defined ✓');
+                log(`Type of Stockfish: ${typeof Stockfish}`);
+                log(`First 100 characters of Stockfish.toString(): ${Stockfish.toString().slice(0, 100)}...`);
+                
+                // Try to initialize Stockfish with a timeout
+                log('Calling Stockfish() with 10 second timeout...');
+                try {
+                    const engine = await timeoutPromise(Stockfish(), 10000);  // 10 second timeout
+                    
+                    log('Stockfish initialized successfully ✓');
+                    log(`Type of result: ${typeof engine}`);
+                    
+                    if (engine === null || engine === undefined) {
+                        statusDiv.innerHTML = '<span class="error">ERROR: Stockfish() returned null or undefined</span>';
+                        log('ERROR: Stockfish() returned null or undefined');
+                        return;
+                    }
+                    
+                    // Check available methods
+                    const methods = Object.keys(engine);
+                    log(`Available methods: ${methods.join(', ')}`);
+                    
+                    if (!methods.includes('postMessage') || !methods.includes('addMessageListener')) {
+                        statusDiv.innerHTML = '<span class="error">ERROR: Stockfish object is missing required methods</span>';
+                        log('ERROR: Stockfish object is missing required methods');
+                        return;
+                    }
+                    
+                    // Set up listener
+                    log('Setting up message listener...');
+                    let receivedResponse = false;
+                    
+                    engine.addMessageListener((line) => {
+                        log(`Engine response: ${line}`);
+                        receivedResponse = true;
+                    });
+                    
+                    // Send a simple UCI command
+                    log('Sending "uci" command...');
+                    engine.postMessage('uci');
+                    
+                    // Wait for response
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    
+                    if (receivedResponse) {
+                        log('Successfully received response from engine ✓');
+                        statusDiv.innerHTML = '<span class="success">SUCCESS: Stockfish loaded and working correctly!</span>';
+                    } else {
+                        log('WARNING: No response received from engine within timeout');
+                        statusDiv.innerHTML = '<span class="error">WARNING: Engine initialized but no response received</span>';
+                    }
+                } catch (timeoutError) {
+                    log(`ERROR: ${timeoutError.message}`);
+                    statusDiv.innerHTML = '<span class="error">ERROR: Stockfish() call timed out after 10 seconds</span>';
+                    log('The Stockfish() call is hanging, likely due to WebAssembly threading issues');
+                    log('Possible causes:');
+                    log('1. COOP/COEP headers not properly set');
+                    log('2. WebAssembly threading not supported in this browser');
+                    log('3. An error in the WASM module initialization');
+                }
+                
+            } catch (error) {
+                log(`ERROR: ${error.message}`);
+                if (error.stack) {
+                    log(`Stack trace: ${error.stack}`);
+                }
+                statusDiv.innerHTML = `<span class="error">ERROR: ${error.message}</span>`;
+            }
+        }
+        
+        // Run the test when the page loads
+        window.addEventListener('load', testStockfish);
+        
+        // Force reload without WebAssembly
+        forceLoadBtn.addEventListener('click', () => {
+            localStorage.setItem('forceNoWasm', 'true');
+            location.reload();
+        });
+    </script>
+</body>
+</html> 
