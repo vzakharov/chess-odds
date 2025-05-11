@@ -33,12 +33,12 @@ A Next.js application that allows you to assess various chess handicaps by simul
 
 2. Install dependencies:
    ```
-   npm install
+   yarn install
    ```
 
 3. Run the development server:
    ```
-   npm run dev
+   yarn dev
    ```
 
 4. Open [http://localhost:3000](http://localhost:3000) in your browser to see the application.
