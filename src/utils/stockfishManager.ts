@@ -6,6 +6,7 @@ interface StockfishWorkerInstance {
   isReady: boolean;
   messageQueue: string[];
   listeners: Map<string, ((line: string) => void)[]>;
+  usingFallback?: boolean;
 }
 
 export class StockfishManager {
@@ -41,10 +42,18 @@ export class StockfishManager {
         
         // Set up message handling
         worker.onmessage = (e: MessageEvent) => {
-          const { type, line, error } = e.data;
+          const { type, line, error, usingFallback, message, stack } = e.data;
           
-          if (type === 'ready') {
+          if (type === 'log') {
+            console.log(`Stockfish Worker Log: ${message}`);
+          } else if (type === 'ready') {
             instance.isReady = true;
+            instance.usingFallback = usingFallback;
+            
+            if (usingFallback) {
+              console.log(message || 'Using Stockfish fallback mode');
+            }
+            
             // Process any queued messages
             while (instance.messageQueue.length > 0) {
               const message = instance.messageQueue.shift();
@@ -54,6 +63,13 @@ export class StockfishManager {
             }
             resolve();
           } else if (type === 'error') {
+            console.error('Stockfish error:', error);
+            if (stack) {
+              console.error('Error stack:', stack);
+            }
+            if (message) {
+              console.error('Error message:', message);
+            }
             reject(error);
           } else if (type === 'stockfish-output') {
             // Forward to all registered listeners

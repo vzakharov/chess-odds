@@ -67,7 +67,7 @@ export class ChessEngine {
       
       this.initialized = true;
     } catch (error) {
-      console.error('Failed to initialize Stockfish engines:', error);
+      // console.error('Failed to initialize Stockfish engines:', error);
       throw error;
     }
   }
