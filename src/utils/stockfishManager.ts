@@ -30,7 +30,7 @@ export class StockfishManager {
     return new Promise((resolve, reject) => {
       try {
         // Create a new worker using the file in the public directory
-        const worker = new Worker('/workers/stockfish.worker.js');
+        const worker = new Worker('/stockfish.worker.js');
         
         // Initialize the worker instance 
         const instance: StockfishWorkerInstance = {

@@ -147,7 +147,7 @@
             }
             
             logMessage('Creating new worker...');
-            worker = new Worker('/workers/stockfish.worker.js');
+            worker = new Worker('/stockfish.worker.js');
             
             worker.onmessage = function(e) {
                 const data = e.data;
