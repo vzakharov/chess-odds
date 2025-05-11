@@ -1,15 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import dynamic from 'next/dynamic';
-import { Chess, Square } from 'chess.js';
+import { Chess } from 'chess.js';
 import { ChessPiece, BoardSquare, getBoardFromFen } from '../utils/fenUtils';
-
-// Dynamically import Chessboard component from chessboardjsx
-const Chessboard = dynamic(() => import('chessboardjsx').then((mod) => mod.default), {
-  ssr: false,
-  loading: () => <div className="w-full h-96 bg-gray-200 animate-pulse rounded-md"></div>
-});
 
 interface ChessBoardProps {
   startingFen?: string;
@@ -18,103 +11,85 @@ interface ChessBoardProps {
   width?: number;
 }
 
+const pieceUnicode: Record<string, string> = {
+  'p': '♟', 'n': '♞', 'b': '♝', 'r': '♜', 'q': '♛', 'k': '♚',
+  'P': '♙', 'N': '♘', 'B': '♗', 'R': '♖', 'Q': '♕', 'K': '♔',
+};
+
+function renderBoard(fen: string) {
+  const rows = fen.split(' ')[0].split('/');
+  return (
+    <table className="border-collapse" style={{ border: '2px solid #333' }}>
+      <tbody>
+        {rows.map((row, i) => {
+          const squares = [];
+          for (const char of row) {
+            if (isNaN(Number(char))) {
+              squares.push(char);
+            } else {
+              for (let k = 0; k < Number(char); k++) squares.push(null);
+            }
+          }
+          return (
+            <tr key={i}>
+              {squares.map((piece, j) => {
+                const isLight = (i + j) % 2 === 1;
+                return (
+                  <td
+                    key={j}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      background: isLight ? '#f0d9b5' : '#b58863',
+                      textAlign: 'center',
+                      fontSize: 28,
+                      fontFamily: 'serif',
+                      userSelect: 'none',
+                    }}
+                  >
+                    {piece ? pieceUnicode[piece] : ''}
+                  </td>
+                );
+              })}
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
 const ChessBoard: React.FC<ChessBoardProps> = ({
   startingFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
   onBoardChange,
   disabled = false,
   width = 400
 }) => {
-  const [chess] = useState(new Chess(startingFen));
   const [fen, setFen] = useState(startingFen);
-  const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
-  const [removedPieces, setRemovedPieces] = useState<ChessPiece[]>([]);
-  const [boardSquares, setBoardSquares] = useState<BoardSquare[]>(getBoardFromFen(startingFen));
 
   useEffect(() => {
-    setBoardSquares(getBoardFromFen(fen));
-  }, [fen]);
-
-  const handleSquareClick = (square: Square) => {
-    if (disabled) return;
-
-    const piece = chess.get(square);
-    if (piece) {
-      // Remove the piece
-      chess.remove(square);
-      const newFen = chess.fen();
-      setFen(newFen);
-
-      // Track removed pieces
-      const removedPiece: ChessPiece = {
-        type: piece.type as 'p' | 'n' | 'b' | 'r' | 'q' | 'k',
-        color: piece.color as 'w' | 'b',
-        square
-      };
-      const updatedRemovedPieces = [...removedPieces, removedPiece];
-      setRemovedPieces(updatedRemovedPieces);
-
-      // Notify parent
-      onBoardChange(newFen, updatedRemovedPieces);
-    }
-  };
-
-  const resetBoard = () => {
-    if (disabled) return;
-    
-    const newChess = new Chess(startingFen);
     setFen(startingFen);
-    setRemovedPieces([]);
-    setBoardSquares(getBoardFromFen(startingFen));
-    onBoardChange(startingFen, []);
-    chess.load(startingFen);
+  }, [startingFen]);
+
+  const handleFenChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newFen = e.target.value;
+    setFen(newFen);
+    onBoardChange(newFen, []);
   };
 
   return (
     <div className="flex flex-col items-center">
+      <input
+        type="text"
+        className="mb-4 w-full p-2 border rounded text-sm"
+        value={fen}
+        onChange={handleFenChange}
+        disabled={disabled}
+        placeholder="Enter FEN string"
+        style={{ maxWidth: width }}
+      />
       <div className="mb-4">
-        <Chessboard
-          width={width}
-          position={fen}
-          onSquareClick={handleSquareClick}
-          boardStyle={{
-            borderRadius: '5px',
-            boxShadow: '0 5px 15px rgba(0, 0, 0, 0.5)'
-          }}
-          squareStyles={{
-            ...(selectedSquare ? { [selectedSquare]: { backgroundColor: 'rgba(255, 255, 0, 0.4)' } } : {})
-          }}
-          lightSquareStyle={{ backgroundColor: '#f0d9b5' }}
-          darkSquareStyle={{ backgroundColor: '#b58863' }}
-        />
-      </div>
-      
-      {!disabled && (
-        <div className="mt-2 mb-4">
-          <button
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-            onClick={resetBoard}
-          >
-            Reset Board
-          </button>
-        </div>
-      )}
-
-      <div className="mt-2">
-        <h3 className="text-lg font-semibold mb-2">Removed Pieces:</h3>
-        <div className="flex flex-wrap gap-2">
-          {removedPieces.map((piece, index) => (
-            <div 
-              key={index} 
-              className="w-8 h-8 flex items-center justify-center bg-gray-200 rounded"
-              title={`${piece.color === 'w' ? 'White' : 'Black'} ${getPieceName(piece.type)}`}
-            >
-              {getPieceSymbol(piece)}
-            </div>
-          ))}
-          {removedPieces.length === 0 && (
-            <div className="text-gray-500">No pieces removed</div>
-          )}
-        </div>
+        {renderBoard(fen)}
       </div>
     </div>
   );
